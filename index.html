@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Core Web Vitals check</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Public+Sans:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#EDF1F4;--card:#fff;--ink:#14212B;--mu:#5B6B78;--line:#CBD5DC;--good:#0B8F5A;--ni:#C98200;--poor:#C4352B;--acc:#1F4FD8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 'Public Sans',system-ui,sans-serif}
+h1,h2,h3,h4{font-family:'Bricolage Grotesque',sans-serif;margin:0;line-height:1.15}
+.w{max-width:960px;margin:0 auto;padding:32px 20px 64px}
+h1{font-size:clamp(32px,6vw,52px);font-weight:800;letter-spacing:-.02em}
+.sub{color:var(--mu);max-width:56ch;margin:10px 0 24px}
+form{display:flex;gap:8px;flex-wrap:wrap}
+input{flex:1 1 300px;padding:14px 16px;border:2px solid var(--ink);border-radius:6px;font:inherit;background:#fff}
+button{padding:14px 22px;border:0;border-radius:6px;background:var(--acc);color:#fff;font:600 16px 'Public Sans',sans-serif;cursor:pointer}
+button.alt{background:var(--ink)}button:disabled{opacity:.6}
+.bar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;justify-content:space-between;margin:36px 0 16px}
+.tabs button{background:transparent;color:var(--ink);border:2px solid var(--ink);padding:8px 16px;margin-right:6px}
+.tabs button.on{background:var(--ink);color:#fff}
+.top{display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-bottom:20px}
+.score{font:800 64px 'Bricolage Grotesque';line-height:1}
+.verdict{font:800 26px 'Bricolage Grotesque'}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.m{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px}
+.m h3{font-size:16px;font-weight:600;margin-bottom:8px}
+.v{margin:0 0 10px}.v b{font:800 30px 'Bricolage Grotesque';margin-right:6px}
+.good{color:var(--good)}.ni{color:var(--ni)}.poor{color:var(--poor)}
+.g{position:relative;height:10px;border-radius:5px;margin:6px 0 10px}
+.g i{position:absolute;top:-5px;width:6px;height:20px;border-radius:3px;background:var(--ink);border:2px solid #fff}
+.mu{color:var(--mu);font-size:14px;margin:0}
+section{margin-top:36px}
+section>h2{font-size:26px;padding-bottom:8px;border-bottom:2px solid var(--ink);margin-bottom:14px}
+.fi{background:var(--card);border-left:5px solid var(--acc);border-radius:0 8px 8px 0;padding:14px 16px;margin-bottom:12px}
+.fi h4{font-size:17px}.fi p{margin:6px 0}
+ul{margin:8px 0 0;padding-left:18px}li{margin-bottom:6px;overflow-wrap:anywhere}
+code{font:13px ui-monospace,Menlo,monospace;background:#E4EAEF;padding:2px 5px;border-radius:4px}
+pre{background:#E4EAEF;padding:10px;border-radius:6px;overflow-x:auto;font-size:13px;margin:8px 0 0}
+.err{background:#FBE9E7;border:1px solid var(--poor);padding:14px;border-radius:6px;margin-top:20px}
+</style>
+</head>
+<body>
+<div class="w">
+  <h1>Core Web Vitals check</h1>
+  <p class="sub">Enter a page URL to see which vitals fail, what is causing it, and which elements to fix first.</p>
+  <form id="f"><input id="u" type="url" required placeholder="https://example.com/page" aria-label="Page URL"><button id="go">Analyze page</button></form>
+  <main id="out" aria-live="polite"></main>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+const TH={lcp:[2500,4000],inp:[200,500],cls:[0.1,0.25],fcp:[1800,3000],ttfb:[800,1800],tbt:[200,600]};
+const LBL={good:'Good',ni:'Needs improvement',poor:'Poor'};
+const CORE=['lcp','inp','cls'];
+const fmt=(k,v)=>k==='cls'?v.toFixed(2):v>=1000?(v/1000).toFixed(1)+' s':Math.round(v)+' ms';
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const out=document.getElementById('out');
+let D={},cur='mobile';
+
+const rt=(m)=>(m.field||m.lab)?.rating;
+const verdict=d=>{const r=CORE.map(k=>rt(d.metrics.find(m=>m.key===k))).filter(Boolean);
+  if(!r.length)return['No data','mu'];
+  return r.every(x=>x==='good')?['Core Web Vitals pass','good']:['Core Web Vitals fail','poor']};
+
+const gauge=(k,v,r)=>{const[a,b]=TH[k],mx=b*1.5,p=x=>x/mx*100;
+  return `<div class="g" style="background:linear-gradient(90deg,var(--good) ${p(a)}%,var(--ni) 0 ${p(b)}%,var(--poor) 0)"><i style="left:${Math.min(p(v),97)}%"></i></div>`};
+
+const card=m=>{const d=m.field||m.lab;
+  if(!d)return `<article class="m"><h3>${esc(m.name)}</h3><p class="mu">No data for this page.</p></article>`;
+  return `<article class="m"><h3>${esc(m.name)}</h3><p class="v"><b class="${d.rating}">${fmt(m.key,d.value)}</b>${LBL[d.rating]}</p>${gauge(m.key,d.value,d.rating)}<p class="mu">${m.field?'Real users (75th percentile)':'Lab test'}${m.field&&m.lab?', lab '+fmt(m.key,m.lab.value):''}</p></article>`};
+
+const fnd=f=>`<div class="fi"><h4>${esc(f.title)}${f.value?', '+esc(f.value):''}</h4><p>${esc(f.fix)}</p>${f.items.length?`<ul>${f.items.map(i=>`<li><code>${esc(i.el)}</code>${i.note?` <span class="mu">${esc(i.note)}</span>`:''}</li>`).join('')}</ul>`:''}</div>`;
+
+const diag=(d,k)=>{const m=d.metrics.find(x=>x.key===k),r=rt(m),fs=d.findings.filter(f=>f.metric===k);
+  let h=`<section><h2>${esc(m.name)}${r?`: <span class="${r}">${LBL[r]}</span>`:''}</h2>`;
+  if(r==='good')return h+'<p>This metric passes. No action needed.</p></section>';
+  if(k==='lcp'&&d.lcp)h+=`<div class="fi"><h4>Your largest element</h4><p>This is what the browser measures for LCP. Make it load sooner.</p><code>${esc(d.lcp.el)}</code>${d.lcp.html?`<pre>${esc(d.lcp.html)}</pre>`:''}</div>`;
+  if(k==='inp'&&!m.field)h+='<p class="mu">No real-user INP data exists for this page yet. Findings below come from the lab run.</p>';
+  h+=fs.length?fs.map(fnd).join(''):'<p>The lab run found no single cause. Check real-user conditions: slower devices, slower networks, and third-party scripts that load late.</p>';
+  return h+'</section>'};
+
+function render(){const d=D[cur];if(!d)return;
+  const[vt,vc]=verdict(d),scope={page:'Real-user data is for this exact page.',origin:'No page-level real-user data, so real-user numbers are for the whole site.',none:'No real-user data available, showing lab results only.'}[d.scope];
+  out.innerHTML=`<div class="bar"><div class="tabs">${['mobile','desktop'].map(s=>`<button data-s="${s}" class="${s===cur?'on':''}">${s[0].toUpperCase()+s.slice(1)}</button>`).join('')}</div><button class="alt" id="pdf">Download PDF report</button></div>
+  <div class="top"><div class="score ${d.score>=90?'good':d.score>=50?'ni':'poor'}">${d.score}</div><div><div class="verdict ${vc}">${vt}</div><p class="mu">Lighthouse performance score. ${scope}</p></div></div>
+  <div class="grid">${d.metrics.map(card).join('')}</div>${CORE.map(k=>diag(d,k)).join('')}`;
+  out.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{cur=b.dataset.s;render()});
+  document.getElementById('pdf').onclick=()=>pdf();}
+
+const get=(url,s)=>fetch(`/api/analyze?url=${encodeURIComponent(url)}&strategy=${s}`).then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error||'Request failed');return j});
+
+document.getElementById('f').onsubmit=async e=>{e.preventDefault();
+  const url=document.getElementById('u').value.trim(),go=document.getElementById('go');
+  go.disabled=true;go.textContent='Analyzing...';out.innerHTML='<p class="mu" style="margin-top:28px">Running mobile and desktop tests. This takes 20 to 40 seconds.</p>';
+  try{const[m,dk]=await Promise.all([get(url,'mobile'),get(url,'desktop')]);D={mobile:m,desktop:dk};cur='mobile';render()}
+  catch(x){out.innerHTML=`<div class="err"><b>Could not analyze this page.</b> ${esc(x.message)}</div>`}
+  go.disabled=false;go.textContent='Analyze page'};
+
+function pdf(){const{jsPDF}=window.jspdf,P=new jsPDF({unit:'pt',format:'a4'});let y=50;
+  const w=(t,sz=10,b=0,x=50,c=[20,33,43])=>{P.setFont('helvetica',b?'bold':'normal');P.setFontSize(sz);P.setTextColor(...c);
+    P.splitTextToSize(String(t).replace(/[^\x20-\x7E]/g,''),495-(x-50)).forEach(l=>{if(y>790){P.addPage();y=50}P.text(l,x,y);y+=sz*1.4});y+=3};
+  const col={good:[11,143,90],ni:[201,130,0],poor:[196,53,43]};
+  ['mobile','desktop'].forEach((s,n)=>{const d=D[s];if(n){P.addPage();y=50}
+    w('Core Web Vitals report: '+s,20,1);w(d.finalUrl||d.url,10);w('Generated '+new Date(d.fetchedAt).toLocaleString()+'. Performance score '+d.score+'/100. '+verdict(d)[0]+'.',10);y+=8;
+    w('Metrics',14,1);d.metrics.forEach(m=>{const x=m.field||m.lab;w(m.name+': '+(x?fmt(m.key,x.value)+' ('+LBL[x.rating]+', '+(m.field?'real users':'lab')+')':'no data'),10,0,50,x?col[x.rating]:undefined)});
+    CORE.forEach(k=>{const m=d.metrics.find(x=>x.key===k),r=rt(m);y+=10;w(m.name+(r?': '+LBL[r]:''),14,1);
+      if(r==='good'){w('Passing. No action needed.');return}
+      if(k==='lcp'&&d.lcp)w('Largest element: '+d.lcp.el,10,1);
+      const fs=d.findings.filter(f=>f.metric===k);if(!fs.length)w('No single cause found in the lab run.');
+      fs.forEach(f=>{w(f.title+(f.value?', '+f.value:''),11,1);w(f.fix);f.items.forEach(i=>w('- '+i.el+(i.note?' ('+i.note+')':''),9,0,62))})})});
+  P.save('vitals-report-'+new URL(D.mobile.url).hostname+'.pdf')}
+</script>
+</body>
+</html>
